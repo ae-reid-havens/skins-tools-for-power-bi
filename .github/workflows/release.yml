@@ -1,0 +1,188 @@
+# ============================================================
+# Release: publish the built Windhawk mod as a GitHub release.
+#
+# On a tag push `vX.Y.Z`: check that mod/pbid-tweaks.wh.cpp says the same
+# version, lint both mod files the way Windhawk reads them, take the notes
+# from the matching CHANGELOG.md section, and create the release with both
+# mod files attached. A release that exists already is left alone, so a
+# re-run is safe.
+#
+# workflow_dispatch is the dry run: the same checks on whatever ref is
+# chosen, nothing published. It publishes only when the chosen ref is the
+# v* tag itself (the `tag` input may then be left empty).
+#
+# The mod files come from the source repo's scripts/publish-public.mjs,
+# which builds them and copies them into mod/.
+# ============================================================
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to check, for example v1.0.0. Empty means the chosen ref. Publishes only when the chosen ref is that v* tag; otherwise a dry run"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+# One run per ref; a second run for the same tag waits instead of racing the
+# first one to create the release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Check the mod and publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The ref and the input are read once, here, into env; every later step
+      # works from TAG and DRY_RUN and carries no expression in its body.
+      - name: Decide the tag and whether this is a dry run
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_INPUT:-$REF_NAME}"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::\"$tag\" is not a release tag of the form vX.Y.Z. Run on a v* tag, or type one in the tag input."
+            exit 1
+          fi
+          dry=true
+          if [ "$REF_TYPE" = "tag" ]; then
+            if [ "$REF_NAME" != "$tag" ]; then
+              echo "::error::the chosen ref is tag $REF_NAME but the tag input says $tag. Leave the input empty or make them match."
+              exit 1
+            fi
+            dry=false
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "DRY_RUN=$dry" >> "$GITHUB_ENV"
+          echo "tag: $tag (dry run: $dry)"
+
+      - name: Check the mod's @version against the tag
+        run: |
+          set -euo pipefail
+          want="${TAG#v}"
+          for f in mod/pbid-tweaks.wh.cpp mod/pbid-tweaks.min.wh.cpp; do
+            if [ ! -f "$f" ]; then
+              echo "::error file=$f::missing. Run scripts/publish-public.mjs in the source repo to build the mod into mod/, then commit it."
+              exit 1
+            fi
+            got="$(awk '/^\/\/ ==\/WindhawkMod==/ { exit } /^\/\/ @version[ \t]/ { print $3; exit }' "$f")"
+            if [ "$got" != "$want" ]; then
+              echo "::error file=$f::@version is \"$got\" but the tag $TAG wants \"$want\". Rebuild with --version=$want."
+              exit 1
+            fi
+            echo "$f: @version $got"
+          done
+
+      - name: Lint both mod files
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in mod/pbid-tweaks.wh.cpp mod/pbid-tweaks.min.wh.cpp; do
+            if [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
+              echo "::error file=$f,line=1::the file starts with a byte-order mark; Windhawk wants plain UTF-8."
+              fail=1
+            fi
+            # Counted as bytes, so no tool's text mode can hide a CR.
+            cr="$(tr -cd '\r' < "$f" | wc -c | tr -d ' ')"
+            if [ "$cr" != "0" ]; then
+              echo "::error file=$f::CR characters found ($cr); the mod must use LF line endings only."
+              fail=1
+            fi
+            long="$(LC_ALL=C awk 'length > 4096 { print NR; n++ } n == 5 { exit }' "$f" | tr '\n' ' ')"
+            if [ -n "$long" ]; then
+              echo "::error file=$f::lines over 4096 characters (Windhawk's limit): $long"
+              fail=1
+            fi
+            if [ "$(head -n 1 "$f")" != "// ==WindhawkMod==" ]; then
+              echo "::error file=$f,line=1::line 1 must be \"// ==WindhawkMod==\", the start of the metadata block."
+              fail=1
+            fi
+            if ! grep -qx '// ==/WindhawkMod==' "$f"; then
+              echo "::error file=$f::the metadata block has no closing \"// ==/WindhawkMod==\" line."
+              fail=1
+            fi
+            echo "$f: $(wc -l < "$f") lines, $(wc -c < "$f") bytes"
+          done
+          exit "$fail"
+
+      - name: Take the release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          want="${TAG#v}"
+          # The section runs from a heading "## X.Y.Z" (brackets and a leading
+          # v allowed, anything after the version ignored) to the next "## ".
+          awk -v v="$want" '
+            /^## / {
+              if (on) exit
+              h = $2; gsub(/\[|\]/, "", h); sub(/^v/, "", h)
+              if (h == v) { on = 1; next }
+            }
+            on { print }
+          ' CHANGELOG.md | sed -e '/[^[:space:]]/,$!d' > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error file=CHANGELOG.md::no \"## $want\" section with text in it. Add one before tagging."
+            exit 1
+          fi
+          cat notes.md
+
+      - name: Create the GitHub release
+        if: env.DRY_RUN == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "::notice::a release for $TAG exists already; nothing created."
+            echo "RELEASE_RESULT=exists" >> "$GITHUB_ENV"
+          else
+            gh release create "$TAG" --verify-tag --title "Skins & Tools for Power BI $TAG" --notes-file notes.md mod/pbid-tweaks.wh.cpp mod/pbid-tweaks.min.wh.cpp
+            echo "RELEASE_RESULT=created" >> "$GITHUB_ENV"
+          fi
+
+      - name: Step summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          tag="${TAG:-(not decided)}"
+          case "$JOB_STATUS:${DRY_RUN:-}:${RELEASE_RESULT:-}" in
+            *:false:created) result="Release $tag created with mod/pbid-tweaks.wh.cpp and mod/pbid-tweaks.min.wh.cpp attached." ;;
+            *:false:exists) result="A release for $tag exists already; nothing changed." ;;
+            success:true:*) result="Dry run: every check passed and nothing was published. Push the v* tag, or run this on it, to publish." ;;
+            *) result="Not published: a step failed or the run was cancelled. See the log." ;;
+          esac
+          {
+            echo "## Skins & Tools for Power BI $tag"
+            echo
+            echo "$result"
+            echo
+            echo "Job status: $JOB_STATUS"
+            if [ -s notes.md ]; then
+              echo
+              echo "### Release notes"
+              echo
+              cat notes.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
