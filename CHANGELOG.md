@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Stencil's build script carries the project folder inside its encoded data, so no folder name can be read as PowerShell code, whatever quotes it contains.
+- Stencil's Build accepts a project folder typed with backslashes, the way Explorer copies paths.
+- The menu and the help panel credit the mod's author.
+
 ## 1.0.1
 
 - New license: CC BY-ND 4.0. Use it, at work too, and share unchanged copies with credit;
