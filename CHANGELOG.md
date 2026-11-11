@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.2
+
+Answers the two functionality notes in the Windhawk catalog's review of 1.2.1.
+
+### Changed
+
+- Chaos Mode's fake crash screen: a plain key now only dismisses it, so Delete no longer removes the selected visual and an arrow key no longer nudges it. A key with Ctrl, Alt or Win still dismisses it and does its usual job (Ctrl+S still saves), and a click still dismisses it.
+
+### Fixed
+
+- Filter map notices Ctrl+Z and Ctrl+Y on every keyboard layout, Cyrillic and Greek included, and also when Ctrl is let go before the Z or Y key comes up.
+- Theme check and Filter map find visuals inside groups: a grouped visual's saved position, which is relative to its group, is now read as its place on the page, nested groups included. Stencil keeps grouped blocks where they are, and a shape is matched to its saved file again.
+
 ## 1.2.1
 
 Answers the Windhawk catalog's second review of 1.2.0.
