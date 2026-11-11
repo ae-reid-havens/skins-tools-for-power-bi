@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.1
+
+Answers the Windhawk catalog's second review of 1.2.0.
+
+### Changed
+
+- Disabling or updating the mod with Power BI open never keeps it loaded. Before, when WebView2 still held one of the mod's handlers, a file call was still running, or a hand-over window was left 15 seconds after a disable, the mod stayed in Power BI until it closed, and an update then loaded a second copy beside it. Now each web view's thread is reached through the mod's own window on that thread, and the disable waits up to two minutes for the rest, then lets Windhawk unload the mod.
+- Chaos Mode, the Easter egg, shows a small note at the bottom of the window for as long as it is on: press Esc twice, or type the code again, to leave it.
+- The sounds of Chaos Mode and of the Begin-menu programs play only when Skin sounds is on (off by default), like the mod's other sounds.
+- Filter map reads the visuals again only after a click or key on the report canvas, in the Filters pane or in the Bookmarks pane, or an undo or redo (Ctrl+Z, Ctrl+Y, Power BI's Undo and Redo buttons), instead of after any click anywhere. The ribbon, the Format, Visualizations, Fields and Selection panes and saving no longer start a pass. Changes in the Filters pane, and new files after a save, still refresh it.
+- The readme describes Chaos Mode as a mode that stays on until you leave it, says how to leave it, mentions its crash screen on pages with pie or donut charts, and says its sounds follow Skin sounds. "What it reads and keeps" lists every file the Stencil frames script writes and no longer says the Stencil script never overwrites a file that exists. The Skin sounds and Hidden surprises settings and the help say the same.
+
+### Fixed
+
+- Badge cards in Report view pin on a click again. Power BI's Report view page has no PointerEvent constructor, so the click threw before the card opened.
+- Chaos Mode's fake crash screen no longer swallows the key that dismisses it, so Ctrl+S still saves.
+- Disabling the mod during an Interactions "set all" run ends the run, and no bar or colored icons come back.
+- Disabling the mod during a Filter map run across every page no longer switches back to your page or shows a toast afterwards.
+- Disabling the mod while Stencil waits for a fresh save to be read no longer builds, copies the script or shows a toast afterwards.
+
 ## 1.2.0
 
 The first release for the Windhawk catalog. It holds every change since 1.0.2; 1.0.3 and 1.1.0 were never released on their own.
